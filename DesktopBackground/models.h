@@ -63,9 +63,9 @@ class Simul {
 public:
     /* x, y is number of cells, each 1x1 */
     std::int32_t x = 0, y = 0;
-    double maxsize = 1, crad = 1;
+    double maxsize = 1;
     double cellsize = 1;
-    Vec2<double> constraint_center;
+    Vec2<double> constraint_dim, constraint_sz; /* dim = x, y and sz = w, h */
     Cell **cells;
 
     Simul(std::int32_t x, std::int32_t y);

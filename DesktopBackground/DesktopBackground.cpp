@@ -117,42 +117,41 @@ int main(int argc, char **argv) {
     const double display_scale = 3;
 
     Simul s(25, 25);
-    s.cellsize = 8;
-    s.constraint_center = {100.0, 100.0};
-    s.crad = 100;
-    const double psize = 4;
-    const sf::Vector2f constraint_point(s.constraint_center.x, s.constraint_center.y);
+    s.cellsize = 16;
+    s.constraint_dim = {0.0, 0.0};
+    s.constraint_sz = {400.0, 400.0};
+    const double psize = 2;
+    const sf::Vector2f constraint_point(s.constraint_dim.x * display_scale, s.constraint_dim.y * display_scale);
 
     const sf::Color bg = sf::Color::Color(0xEA, 0xEA, 0xEA);
     const sf::Color fg = sf::Color::Color(0x1C, 0x1C, 0x1C);
-    const std::int32_t xoffset = (width - 200 * display_scale) / 2;
-    const std::int32_t yoffset = (height - 200 * display_scale) / 2;
+    const std::int32_t xoffset = (width - s.constraint_sz.x * display_scale) / 2;
+    const std::int32_t yoffset = (height - s.constraint_sz.y * display_scale) / 2;
 
     const std::uint64_t start = get_current_time();
     std::uint64_t last_create = start;
     std::uint64_t pwait = 500'000'000ULL;
     while (true) {
         std::uint64_t now = get_current_time();
-        if (now - start < 3 * 1'000'000'000ULL) {
+        if (now - start < 15 * 1'000'000'000ULL) {
             if (now - last_create >= pwait) {
-                Particle *p = new Particle({50, 130});
+                Particle *p = new Particle({random_real(0.0, 400.0), random_real(200.0, 350.0)});
                 p->size = psize;
-                p->temperature = random_real(0.0, 255.0);
+                p->temperature = random_real(0.0, 100.0);
                 s.addparticle(p);
                 last_create = now;
-                pwait = random_int(1'000'000ULL, 10'000'000ULL);
+                pwait = 0;
+                /* pwait = random_int(1'000'000ULL, 10'000'000ULL); */
             }
         }
-        s.update(1/120.0, 8);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100/120)); /* assume computation takes zero time !!! */
+        s.update(1/120.0, 4);
+        /* std::this_thread::sleep_for(std::chrono::milliseconds(100/120)); */
         window.clear(bg);
-        sf::CircleShape bound(s.crad * display_scale);
-        bound.setPosition(xoffset, yoffset);
-        bound.setPointCount(100);
+        sf::RectangleShape bound(sf::Vector2f(s.constraint_sz.x * display_scale, s.constraint_sz.y * display_scale));
+        bound.setPosition(xoffset + s.constraint_dim.x, yoffset + s.constraint_dim.y);
         bound.setFillColor(fg);
         window.draw(bound);
         /* drawing cells */
-        /*
         for (std::int32_t i = 0; i < s.x; i++) {
             for (std::int32_t j = 0; j < s.y; j++) {
                 sf::RectangleShape cellr(sf::Vector2f(s.cellsize * display_scale, s.cellsize * display_scale));
@@ -165,7 +164,6 @@ int main(int argc, char **argv) {
                 window.draw(cellbr);
             }
         }
-        */
         for (std::int32_t i = 0; i < s.x; i++) {
             for (std::int32_t j = 0; j < s.y; j++) {
                 for (const Particle *pparticle : s.cells[i][j].particles) {

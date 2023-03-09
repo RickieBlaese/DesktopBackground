@@ -112,8 +112,8 @@ Simul::~Simul() {
 }
 
 void Simul::addparticle(Particle *pparticle) {
-    cells[0][0].particles.push_back(pparticle);
-    check_particle(0, 0, cells[0][0].particles.size() - 1);
+    cells[1][1].particles.push_back(pparticle);
+    /* check_particle(1, 1, cells[1][1].particles.size() - 1); */
     maxsize = std::max(maxsize, pparticle->size);
 }
 
@@ -145,12 +145,11 @@ void Simul::check_particle(std::int32_t cx, std::int32_t cy, std::int32_t k) {
 }
 
 void Simul::update(double dt, std::int32_t substeps) {
-    const double temp_trans = 0.1; /* how much per second */
-    const double temp_decay = 2; /* per sec */
+    const double temp_trans = 5; /* how much per second */
+    const double temp_decay = 50; /* per sec */
     const double temp_gain = 1000;
-    const double response_coeff = 0.75;
     const double elasticity = 1;
-    accelerate({0.0, 20.0}); /* gravity */
+    accelerate({0.0, 30.0}); /* gravity */
     for (std::int32_t si = 0; si < substeps; si++) {
         for (std::int32_t i = 0; i < x; i++) {
             for (std::int32_t j = 0; j < y; j++) {
@@ -159,7 +158,7 @@ void Simul::update(double dt, std::int32_t substeps) {
                     Particle *poparticle = cells[i][j].particles[ip];
                     Particle& oparticle = *poparticle;
                     oparticle.temperature -= temp_decay * dt;
-                    oparticle.accelerate((constraint_center - oparticle.pos_cur) * oparticle.temperature / 100.0);
+                    oparticle.accelerate({0, -oparticle.temperature/5.0});
                     oparticle.update(dt);
 
                     /* check surrounding */
@@ -176,7 +175,7 @@ void Simul::update(double dt, std::int32_t substeps) {
                                     const Vec2<double> nv = v / dist;
                                     const double oratio = oparticle.size / (oparticle.size + cparticle.size);
                                     const double cratio = cparticle.size / (oparticle.size + cparticle.size);
-                                    const double delta = 0.5 * response_coeff * (dist - oparticle.size - cparticle.size);
+                                    const double delta = 0.5 * (dist - (oparticle.size + cparticle.size));
                                     /* update positions */
                                     oparticle.pos_cur -= nv * (oratio * delta) * elasticity;
                                     cparticle.pos_cur += nv * (cratio * delta) * elasticity;
@@ -189,12 +188,24 @@ void Simul::update(double dt, std::int32_t substeps) {
                         }
                     }
                     /* circle bounds checking */
+                    /*
                     const Vec2 v = constraint_center - oparticle.pos_cur;
                     const double dist = oparticle.pos_cur.dist(constraint_center);
                     if (dist > (crad - oparticle.size)) {
                         oparticle.temperature += temp_gain * dt;
                         const Vec2<double> nv = v / dist;
                         oparticle.pos_cur = constraint_center - nv * (crad - oparticle.size);
+                    }
+                    */
+                    if (oparticle.pos_cur.x > constraint_dim.x + constraint_sz.x - oparticle.size) {
+                        oparticle.pos_cur.x = constraint_dim.x + constraint_sz.x - oparticle.size;
+                    } else if (oparticle.pos_cur.x < constraint_dim.x + oparticle.size) {
+                        oparticle.pos_cur.x = constraint_dim.x + oparticle.size;
+                    } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y - oparticle.size) { /* is bottom */
+                        oparticle.pos_cur.y = constraint_dim.y + constraint_sz.y - oparticle.size;
+                        oparticle.temperature += temp_gain * dt;
+                    } else if (oparticle.pos_cur.y < constraint_dim.y + oparticle.size) {
+                        oparticle.pos_cur.y = constraint_dim.y + oparticle.size;
                     }
                     /* have to re find in case a particle was moved out of cell due to earlier check_particle */
                     check_particle(i, j, std::find(particles.begin(), particles.end(), poparticle) - particles.begin());
