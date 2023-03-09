@@ -135,25 +135,25 @@ int main(int argc, char **argv) {
         std::uint64_t now = get_current_time();
         if (now - start < 10 * 1'000'000'000ULL) {
             if (now - last_create >= pwait) {
-				Particle *p = new Particle({50, 130});
-				p->size = psize;
-				s.addparticle(p);
+                Particle *p = new Particle({50, 130});
+                p->size = psize;
+                s.addparticle(p);
                 last_create = now;
                 pwait = random_int(5'000'000ULL, 10'000'000ULL);
             }
         }
-		s.update(1/30.0);
+        s.update(1/30.0, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(100/120));
         window.clear(bg);
-		sf::CircleShape bound(s.crad * display_scale);
+        sf::CircleShape bound(s.crad * display_scale);
         bound.setPosition(xoffset, yoffset);
         bound.setPointCount(100);
         bound.setFillColor(fg);
         window.draw(bound);
         /* drawing cells */
         /*
-		for (std::int32_t i = 0; i < s.x; i++) {
-			for (std::int32_t j = 0; j < s.y; j++) {
+        for (std::int32_t i = 0; i < s.x; i++) {
+            for (std::int32_t j = 0; j < s.y; j++) {
                 sf::RectangleShape cellr(sf::Vector2f(s.cellsize * display_scale, s.cellsize * display_scale));
                 sf::RectangleShape cellbr(sf::Vector2f(s.cellsize * display_scale - 2, s.cellsize * display_scale - 2));
                 cellr.setPosition(i * s.cellsize * display_scale + xoffset, j * s.cellsize * display_scale + yoffset);
@@ -165,8 +165,8 @@ int main(int argc, char **argv) {
             }
         }
         */
-		for (std::int32_t i = 0; i < s.x; i++) {
-			for (std::int32_t j = 0; j < s.y; j++) {
+        for (std::int32_t i = 0; i < s.x; i++) {
+            for (std::int32_t j = 0; j < s.y; j++) {
                 for (const Particle *pparticle : s.cells[i][j].particles) {
                     const Particle& particle = *pparticle;
                     sf::CircleShape point(particle.size * display_scale);
