@@ -145,7 +145,9 @@ void Simul::check_particle(std::int32_t cx, std::int32_t cy, std::int32_t k) {
 }
 
 void Simul::update(double dt, std::int32_t substeps) {
-    const double temp_trans = 0.2; /* how much per second */
+    const double temp_trans = 0.1; /* how much per second */
+    const double temp_decay = 2; /* per sec */
+    const double temp_gain = 1000;
     const double response_coeff = 0.75;
     const double elasticity = 1;
     accelerate({0.0, 20.0}); /* gravity */
@@ -156,6 +158,8 @@ void Simul::update(double dt, std::int32_t substeps) {
                     std::vector<Particle*>& particles = cells[i][j].particles;
                     Particle *poparticle = cells[i][j].particles[ip];
                     Particle& oparticle = *poparticle;
+                    oparticle.temperature -= temp_decay * dt;
+                    oparticle.accelerate((constraint_center - oparticle.pos_cur) * oparticle.temperature / 100.0);
                     oparticle.update(dt);
 
                     /* check surrounding */
@@ -174,12 +178,8 @@ void Simul::update(double dt, std::int32_t substeps) {
                                     const double cratio = cparticle.size / (oparticle.size + cparticle.size);
                                     const double delta = 0.5 * response_coeff * (dist - oparticle.size - cparticle.size);
                                     /* update positions */
-                                    oparticle.pos_cur -= nv * (oratio * delta);
-                                    cparticle.pos_cur += nv * (cratio * delta);
-                                    /*
-                                    oparticle.pos_cur += nv * 0.5 * elasticity;
-                                    cparticle.pos_cur -= nv * 0.5 * elasticity;
-                                    */
+                                    oparticle.pos_cur -= nv * (oratio * delta) * elasticity;
+                                    cparticle.pos_cur += nv * (cratio * delta) * elasticity;
                                     const double midtemp = (oparticle.temperature + cparticle.temperature) / 2.0;
                                     oparticle.temperature += (midtemp - oparticle.temperature) * temp_trans * dt;
                                     cparticle.temperature += (midtemp - cparticle.temperature) * temp_trans * dt;
@@ -192,6 +192,7 @@ void Simul::update(double dt, std::int32_t substeps) {
                     const Vec2 v = constraint_center - oparticle.pos_cur;
                     const double dist = oparticle.pos_cur.dist(constraint_center);
                     if (dist > (crad - oparticle.size)) {
+                        oparticle.temperature += temp_gain * dt;
                         const Vec2<double> nv = v / dist;
                         oparticle.pos_cur = constraint_center - nv * (crad - oparticle.size);
                     }

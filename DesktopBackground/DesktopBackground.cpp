@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
     s.cellsize = 8;
     s.constraint_center = {100.0, 100.0};
     s.crad = 100;
-    const double psize = 1;
+    const double psize = 4;
     const sf::Vector2f constraint_point(s.constraint_center.x, s.constraint_center.y);
 
     const sf::Color bg = sf::Color::Color(0xEA, 0xEA, 0xEA);
@@ -133,14 +133,14 @@ int main(int argc, char **argv) {
     std::uint64_t pwait = 500'000'000ULL;
     while (true) {
         std::uint64_t now = get_current_time();
-        if (now - start < 10 * 1'000'000'000ULL) {
+        if (now - start < 3 * 1'000'000'000ULL) {
             if (now - last_create >= pwait) {
                 Particle *p = new Particle({50, 130});
                 p->size = psize;
                 p->temperature = random_real(0.0, 255.0);
                 s.addparticle(p);
                 last_create = now;
-                pwait = random_int(5'000ULL, 10'000ULL);
+                pwait = random_int(1'000'000ULL, 10'000'000ULL);
             }
         }
         s.update(1/120.0, 8);
