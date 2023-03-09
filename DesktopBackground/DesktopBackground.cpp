@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
     const int width = GetSystemMetrics(SM_CXVIRTUALSCREEN), height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     SetWindowPos(wallpaper, NULL, 0, 0, width, height, 0);
     
-    sf::RenderWindow window(wallpaper);
+    sf::RenderWindow window(wallpaper, settings);
     if (!window.isOpen()) {
         return 1;
     }
@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
     s.cellsize = 8;
     s.constraint_center = {100.0, 100.0};
     s.crad = 100;
-    const double psize = 2;
+    const double psize = 1;
     const sf::Vector2f constraint_point(s.constraint_center.x, s.constraint_center.y);
 
     const sf::Color bg = sf::Color::Color(0xEA, 0xEA, 0xEA);
@@ -137,13 +137,14 @@ int main(int argc, char **argv) {
             if (now - last_create >= pwait) {
                 Particle *p = new Particle({50, 130});
                 p->size = psize;
+                p->temperature = random_real(0.0, 255.0);
                 s.addparticle(p);
                 last_create = now;
-                pwait = random_int(5'000'000ULL, 10'000'000ULL);
+                pwait = random_int(5'000ULL, 10'000ULL);
             }
         }
-        s.update(1/30.0, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100/120));
+        s.update(1/120.0, 8);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100/120)); /* assume computation takes zero time !!! */
         window.clear(bg);
         sf::CircleShape bound(s.crad * display_scale);
         bound.setPosition(xoffset, yoffset);
@@ -170,7 +171,7 @@ int main(int argc, char **argv) {
                 for (const Particle *pparticle : s.cells[i][j].particles) {
                     const Particle& particle = *pparticle;
                     sf::CircleShape point(particle.size * display_scale);
-                    point.setFillColor(sf::Color::Red);
+                    point.setFillColor(sf::Color(std::clamp<std::int32_t>(particle.temperature, 0, 255), 0x00, 0x00));
                     point.setPosition((particle.pos_cur.x - particle.size) * display_scale + xoffset, (particle.pos_cur.y - particle.size) * display_scale + yoffset);
                     window.draw(point);
                 }
