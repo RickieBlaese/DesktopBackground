@@ -147,8 +147,9 @@ void Simul::check_particle(std::int32_t cx, std::int32_t cy, std::int32_t k) {
 void Simul::update(double dt, std::int32_t substeps) {
     const double temp_trans = 4; /* how much per second */
     const double temp_decay = 30; /* per sec */
+    const double temp_wall_decay = 50;
     const double temp_gain = 1000;
-    const double elasticity = 0.1;
+    const double elasticity = 0.75;
     accelerate({0.0, 50.0}); /* gravity */
     for (std::int32_t si = 0; si < substeps; si++) {
         for (std::int32_t i = 0; i < x; i++) {
@@ -157,9 +158,9 @@ void Simul::update(double dt, std::int32_t substeps) {
                     std::vector<Particle*>& particles = cells[i][j].particles;
                     Particle *poparticle = cells[i][j].particles[ip];
                     Particle& oparticle = *poparticle;
-                    if (si == 0) {
+                    if (si == substeps-1) {
 						oparticle.temperature -= temp_decay * dt;
-						oparticle.accelerate({0, -oparticle.temperature/1.5});
+						oparticle.accelerate({0, -oparticle.temperature/2.0});
 						oparticle.update(dt);
                     }
 
@@ -201,8 +202,10 @@ void Simul::update(double dt, std::int32_t substeps) {
                     */
                     if (oparticle.pos_cur.x > constraint_dim.x + constraint_sz.x - oparticle.size) {
                         oparticle.pos_cur.x = constraint_dim.x + constraint_sz.x - oparticle.size;
+                        oparticle.temperature -= temp_wall_decay * dt;
                     } else if (oparticle.pos_cur.x < constraint_dim.x + oparticle.size) {
                         oparticle.pos_cur.x = constraint_dim.x + oparticle.size;
+                        oparticle.temperature -= temp_wall_decay * dt;
                     } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y - oparticle.size) { /* is bottom */
                         oparticle.pos_cur.y = constraint_dim.y + constraint_sz.y - oparticle.size;
 						oparticle.temperature += temp_gain * dt;
@@ -212,6 +215,7 @@ void Simul::update(double dt, std::int32_t substeps) {
                         */
                     } else if (oparticle.pos_cur.y < constraint_dim.y + oparticle.size) {
                         oparticle.pos_cur.y = constraint_dim.y + oparticle.size;
+                        oparticle.temperature -= temp_wall_decay * dt;
                     }
                     /* have to re find in case a particle was moved out of cell due to earlier check_particle */
                     check_particle(i, j, std::find(particles.begin(), particles.end(), poparticle) - particles.begin());

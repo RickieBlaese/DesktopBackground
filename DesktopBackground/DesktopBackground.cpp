@@ -110,10 +110,10 @@ int main(int argc, char **argv) {
     }
 
     const double display_scale = 1;
-    const double ec = 10000;
+    const double ec = -10000;
 
-    Simul s(width / 64.0 + 1, height / 64.0 + 1); /* need extra in case dimensions are not nicely divisible */
-    s.cellsize = 64;
+    Simul s(width / 8.0 + 1, height / 8.0 + 1); /* need extra in case dimensions are not nicely divisible */
+    s.cellsize = 8;
     s.constraint_dim = {0.0, 0.0};
     s.constraint_sz = Vec2<double>(width, height);
     const double psize = 4;
@@ -127,7 +127,22 @@ int main(int argc, char **argv) {
     const std::uint64_t start = get_current_time();
     std::uint64_t last_create = start;
     std::uint64_t pwait = 500'000'000ULL;
+
+    for (std::int32_t i = 1; i < s.x-1; i += 5) {
+        for (std::int32_t j = 1; j < s.y-1; j += 5) {
+            for (std::int32_t k = 0; k < s.cellsize; k += psize * 6) {
+                for (std::int32_t l = 0; l < s.cellsize; l += psize * 6) {
+					Particle *p = new Particle(Vec2<double>(i*s.cellsize + k, j*s.cellsize + l));
+					p->size = psize;
+					p->temperature = random_real(0.0, 50.0);
+					s.cells[i][j].particles.push_back(p);
+                }
+            }
+        }
+    }
+
     while (true) {
+        /*
         std::uint64_t now = get_current_time();
         if (now - start < 30 * 1'000'000'000ULL) {
             if (now - last_create >= pwait) {
@@ -136,13 +151,17 @@ int main(int argc, char **argv) {
                 p->temperature = random_real(0.0, 50.0);
                 s.addparticle(p);
                 last_create = now;
-                pwait = 0;
-                /* pwait = random_int(0'000'000ULL, 1'000'000ULL); */
+                pwait = random_int(0'000'000ULL, 1'000'000ULL);
             }
         }
-        s.update(1/60.0, 2);
+        */
+        /*
+		POINT cpoint;
+		GetCursorPos(&cpoint);
+		const Vec2<double> cposition(cpoint.x, cpoint.y);
+        */
+        s.update(1/60.0, 8);
         /* std::this_thread::sleep_for(std::chrono::milliseconds(100/120)); */
-        window.clear(fg);
         /*
         sf::RectangleShape bound(sf::Vector2f(s.constraint_sz.x * display_scale, s.constraint_sz.y * display_scale));
         bound.setPosition(xoffset + s.constraint_dim.x, yoffset + s.constraint_dim.y);
@@ -164,19 +183,19 @@ int main(int argc, char **argv) {
             }
         }
         */
-		POINT cpoint;
-		GetCursorPos(&cpoint);
-		const Vec2<double> cposition(cpoint.x, cpoint.y);
+        window.clear(bg);
         for (std::int32_t i = 0; i < s.x; i++) {
             for (std::int32_t j = 0; j < s.y; j++) {
                 for (Particle *pparticle : s.cells[i][j].particles) {
                     Particle& particle = *pparticle;
-                    sf::CircleShape point(particle.size * display_scale);
-                    point.setFillColor(sf::Color(std::clamp<std::int32_t>(particle.temperature, 0, 255), 0x13, 0x13));
+					sf::CircleShape point(particle.size * display_scale);
+                    point.setFillColor(sf::Color(std::clamp<std::int32_t>(particle.temperature, 0, 255), 0x1A, 0x1A));
                     point.setPosition((particle.pos_cur.x - particle.size) * display_scale + xoffset, (particle.pos_cur.y - particle.size) * display_scale + yoffset);
                     window.draw(point);
+                    /*
                     const Vec2<double> cdiff(cposition - particle.pos_cur);
-                    particle.accelerate((cdiff / cdiff.mod()) * -ec * particle.size / std::clamp<double>(cdiff.mod()*cdiff.mod(), 0.1, 10000));
+                    particle.accelerate((cdiff / cdiff.mod()) * ec * particle.size / std::clamp<double>(cdiff.mod()*cdiff.mod(), 0.1, 10000));
+                    */
                 }
             }
         }
