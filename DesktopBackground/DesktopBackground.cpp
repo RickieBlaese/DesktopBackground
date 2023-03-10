@@ -92,19 +92,16 @@ HWND get_wallpaper_window() {
     return wallpaper_hwnd;
 }
 
-/* copied and edited from https://stackoverflow.com/questions/38334081/how-to-draw-circles-arcs-and-vector-graphics-in-sdl */
-// rounding helper, simplified version of the function I use
-int roundUpToMultipleOfEight(int v) {
-    return (v + (8 - 1)) & -8;
-}
-
 
 int main(int argc, char **argv) {
+    std::ios_base::sync_with_stdio(false);
     sf::ContextSettings settings;
-    settings.antialiasingLevel = 8;
+    settings.antialiasingLevel = 2;
 
     HWND wallpaper = get_wallpaper_window();
-    const int width = GetSystemMetrics(SM_CXVIRTUALSCREEN), height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    RECT workarea;
+    SystemParametersInfo(SPI_GETWORKAREA, NULL, &workarea, NULL);
+    const int width = workarea.right - workarea.left, height = workarea.bottom - workarea.top;
     SetWindowPos(wallpaper, NULL, 0, 0, width, height, 0);
     
     sf::RenderWindow window(wallpaper, settings);
@@ -112,15 +109,14 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    const double display_scale = 1;
+    const double ec = 10000;
 
-
-    const double display_scale = 3;
-
-    Simul s(25, 25);
-    s.cellsize = 16;
+    Simul s(width / 64.0 + 1, height / 64.0 + 1); /* need extra in case dimensions are not nicely divisible */
+    s.cellsize = 64;
     s.constraint_dim = {0.0, 0.0};
-    s.constraint_sz = {400.0, 400.0};
-    const double psize = 2;
+    s.constraint_sz = Vec2<double>(width, height);
+    const double psize = 4;
     const sf::Vector2f constraint_point(s.constraint_dim.x * display_scale, s.constraint_dim.y * display_scale);
 
     const sf::Color bg = sf::Color::Color(0xEA, 0xEA, 0xEA);
@@ -133,25 +129,28 @@ int main(int argc, char **argv) {
     std::uint64_t pwait = 500'000'000ULL;
     while (true) {
         std::uint64_t now = get_current_time();
-        if (now - start < 15 * 1'000'000'000ULL) {
+        if (now - start < 30 * 1'000'000'000ULL) {
             if (now - last_create >= pwait) {
-                Particle *p = new Particle({random_real(0.0, 400.0), random_real(200.0, 350.0)});
+                Particle *p = new Particle({random_real<double>(psize, width - psize), random_real<double>(psize, height/2.0 - psize)});
                 p->size = psize;
-                p->temperature = random_real(0.0, 100.0);
+                p->temperature = random_real(0.0, 50.0);
                 s.addparticle(p);
                 last_create = now;
                 pwait = 0;
-                /* pwait = random_int(1'000'000ULL, 10'000'000ULL); */
+                /* pwait = random_int(0'000'000ULL, 1'000'000ULL); */
             }
         }
-        s.update(1/120.0, 4);
+        s.update(1/60.0, 2);
         /* std::this_thread::sleep_for(std::chrono::milliseconds(100/120)); */
-        window.clear(bg);
+        window.clear(fg);
+        /*
         sf::RectangleShape bound(sf::Vector2f(s.constraint_sz.x * display_scale, s.constraint_sz.y * display_scale));
         bound.setPosition(xoffset + s.constraint_dim.x, yoffset + s.constraint_dim.y);
-        bound.setFillColor(fg);
+        bound.setFillColor(bg);
         window.draw(bound);
+        */
         /* drawing cells */
+        /*
         for (std::int32_t i = 0; i < s.x; i++) {
             for (std::int32_t j = 0; j < s.y; j++) {
                 sf::RectangleShape cellr(sf::Vector2f(s.cellsize * display_scale, s.cellsize * display_scale));
@@ -164,14 +163,20 @@ int main(int argc, char **argv) {
                 window.draw(cellbr);
             }
         }
+        */
+		POINT cpoint;
+		GetCursorPos(&cpoint);
+		const Vec2<double> cposition(cpoint.x, cpoint.y);
         for (std::int32_t i = 0; i < s.x; i++) {
             for (std::int32_t j = 0; j < s.y; j++) {
-                for (const Particle *pparticle : s.cells[i][j].particles) {
-                    const Particle& particle = *pparticle;
+                for (Particle *pparticle : s.cells[i][j].particles) {
+                    Particle& particle = *pparticle;
                     sf::CircleShape point(particle.size * display_scale);
-                    point.setFillColor(sf::Color(std::clamp<std::int32_t>(particle.temperature, 0, 255), 0x00, 0x00));
+                    point.setFillColor(sf::Color(std::clamp<std::int32_t>(particle.temperature, 0, 255), 0x13, 0x13));
                     point.setPosition((particle.pos_cur.x - particle.size) * display_scale + xoffset, (particle.pos_cur.y - particle.size) * display_scale + yoffset);
                     window.draw(point);
+                    const Vec2<double> cdiff(cposition - particle.pos_cur);
+                    particle.accelerate((cdiff / cdiff.mod()) * -ec * particle.size / std::clamp<double>(cdiff.mod()*cdiff.mod(), 0.1, 10000));
                 }
             }
         }

@@ -113,7 +113,7 @@ Simul::~Simul() {
 
 void Simul::addparticle(Particle *pparticle) {
     cells[1][1].particles.push_back(pparticle);
-    /* check_particle(1, 1, cells[1][1].particles.size() - 1); */
+    check_particle(1, 1, cells[1][1].particles.size() - 1);
     maxsize = std::max(maxsize, pparticle->size);
 }
 
@@ -145,11 +145,11 @@ void Simul::check_particle(std::int32_t cx, std::int32_t cy, std::int32_t k) {
 }
 
 void Simul::update(double dt, std::int32_t substeps) {
-    const double temp_trans = 5; /* how much per second */
-    const double temp_decay = 50; /* per sec */
+    const double temp_trans = 4; /* how much per second */
+    const double temp_decay = 30; /* per sec */
     const double temp_gain = 1000;
-    const double elasticity = 1;
-    accelerate({0.0, 30.0}); /* gravity */
+    const double elasticity = 0.1;
+    accelerate({0.0, 50.0}); /* gravity */
     for (std::int32_t si = 0; si < substeps; si++) {
         for (std::int32_t i = 0; i < x; i++) {
             for (std::int32_t j = 0; j < y; j++) {
@@ -157,9 +157,11 @@ void Simul::update(double dt, std::int32_t substeps) {
                     std::vector<Particle*>& particles = cells[i][j].particles;
                     Particle *poparticle = cells[i][j].particles[ip];
                     Particle& oparticle = *poparticle;
-                    oparticle.temperature -= temp_decay * dt;
-                    oparticle.accelerate({0, -oparticle.temperature/5.0});
-                    oparticle.update(dt);
+                    if (si == 0) {
+						oparticle.temperature -= temp_decay * dt;
+						oparticle.accelerate({0, -oparticle.temperature/1.5});
+						oparticle.update(dt);
+                    }
 
                     /* check surrounding */
                     for (std::int32_t n = -1; n < 2; n++) {
@@ -203,7 +205,11 @@ void Simul::update(double dt, std::int32_t substeps) {
                         oparticle.pos_cur.x = constraint_dim.x + oparticle.size;
                     } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y - oparticle.size) { /* is bottom */
                         oparticle.pos_cur.y = constraint_dim.y + constraint_sz.y - oparticle.size;
-                        oparticle.temperature += temp_gain * dt;
+						oparticle.temperature += temp_gain * dt;
+                        /*
+                        if (oparticle.pos_cur.x > constraint_dim.x + constraint_sz.x/4.0 && oparticle.pos_cur.x < constraint_dim.x + constraint_sz.x * 3.0/4.0) {
+						}
+                        */
                     } else if (oparticle.pos_cur.y < constraint_dim.y + oparticle.size) {
                         oparticle.pos_cur.y = constraint_dim.y + oparticle.size;
                     }
