@@ -2,6 +2,8 @@
 //
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -43,26 +45,6 @@ T random_real(T a, T b) {
     return dist(engine);
 }
 
-void kill_process(LPCWSTR filename) {
-    HANDLE hSnapShot = CreateToolhelp32Snapshot(TH32CS_SNAPALL, NULL);
-    PROCESSENTRY32 pEntry;
-    pEntry.dwSize = sizeof(pEntry);
-    BOOL hRes = Process32First(hSnapShot, &pEntry);
-    while (hRes) {
-        /* this is hacky but it works */
-        if (strstr((char*)pEntry.szExeFile, (char*)filename) == 0) {
-            HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, 0,
-                (DWORD)pEntry.th32ProcessID);
-            if (hProcess != NULL) {
-                TerminateProcess(hProcess, 9);
-                CloseHandle(hProcess);
-            }
-        }
-        hRes = Process32Next(hSnapShot, &pEntry);
-    }
-    CloseHandle(hSnapShot);
-}
-
 /* This section copied from https://www.anycodings.com/1questions/2323944/drawing-on-the-desktop-background-as-wallpaper-replacement-windowsc */
 BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
     HWND p = FindWindowEx(hwnd, NULL, L"SHELLDLL_DefView", NULL);
@@ -94,6 +76,7 @@ HWND get_wallpaper_window() {
 
 
 int main(int argc, char **argv) {
+    AllocConsole();
     std::ios_base::sync_with_stdio(false);
     sf::ContextSettings settings;
     settings.antialiasingLevel = 2;
@@ -105,22 +88,39 @@ int main(int argc, char **argv) {
     SetWindowPos(wallpaper, NULL, 0, 0, width, height, 0);
     
     sf::RenderWindow window(wallpaper, settings);
-    if (!window.isOpen()) {
+    if (!window.isOpen() || !sf::Shader::isAvailable()) {
         return 1;
     }
+
+    /* shader files are copied from https://en.sfml-dev.org/forums/index.php?topic=7827.0 */
+
+    sf::Shader blooms;
+    if (!blooms.loadFromFile("./bloom.fragment", sf::Shader::Fragment)) {
+        std::cout << "horiz error\n";
+    }
+
+    const float sigma = 100.0F;
+    const float glow_multiplier = 1.7F;
+    
+    blooms.setUniform("sourceTexture", sf::Shader::CurrentTexture);
+    blooms.setUniform("sigma", sigma);
+    blooms.setUniform("glowMultiplier", glow_multiplier);
+    blooms.setUniform("width", static_cast<float>(width));
+    blooms.setUniform("height", static_cast<float>(height));
+
 
     const double display_scale = 1;
     const double ec = -10000;
 
-    Simul s(width / 8.0 + 1, height / 8.0 + 1); /* need extra in case dimensions are not nicely divisible */
-    s.cellsize = 8;
+    Simul s(width / 16.0 + 1, height / 16.0 + 1); /* need extra in case dimensions are not nicely divisible */
+    s.cellsize = 16;
     s.constraint_dim = {0.0, 0.0};
     s.constraint_sz = Vec2<double>(width, height);
-    const double psize = 4;
+    const double psize = 8;
     const sf::Vector2f constraint_point(s.constraint_dim.x * display_scale, s.constraint_dim.y * display_scale);
 
-    const sf::Color bg = sf::Color::Color(0xEA, 0xEA, 0xEA);
-    const sf::Color fg = sf::Color::Color(0x1C, 0x1C, 0x1C);
+    const sf::Color bg = sf::Color(0xEA, 0xEA, 0xEA);
+    const sf::Color fg = sf::Color(0x1C, 0x1C, 0x1C);
     const std::int32_t xoffset = (width - s.constraint_sz.x * display_scale) / 2;
     const std::int32_t yoffset = (height - s.constraint_sz.y * display_scale) / 2;
 
@@ -128,19 +128,26 @@ int main(int argc, char **argv) {
     std::uint64_t last_create = start;
     std::uint64_t pwait = 500'000'000ULL;
 
-    for (std::int32_t i = 1; i < s.x-1; i += 5) {
-        for (std::int32_t j = 1; j < s.y-1; j += 5) {
-            for (std::int32_t k = 0; k < s.cellsize; k += psize * 6) {
-                for (std::int32_t l = 0; l < s.cellsize; l += psize * 6) {
-					Particle *p = new Particle(Vec2<double>(i*s.cellsize + k, j*s.cellsize + l));
-					p->size = psize;
-					p->temperature = random_real(0.0, 50.0);
-					s.cells[i][j].particles.push_back(p);
+
+    const std::int32_t initsteps = 4;
+    for (std::int32_t i = 1; i < s.x-1; i += 6) {
+        for (std::int32_t j = 1; j < s.y-1; j += 6) {
+            for (std::int32_t k = 0; k < s.cellsize; k += psize * 2) {
+                for (std::int32_t l = 0; l < s.cellsize; l += psize * 2) {
+                    Particle *p = new Particle(Vec2<double>(i*s.cellsize + k, j*s.cellsize + l));
+                    p->size = psize;
+                    p->temperature = random_real(0.0, 50.0);
+                    s.cells[i][j].particles.push_back(p);
                 }
             }
         }
     }
 
+    POINT cpoint;
+    sf::RenderTexture thisf;
+    thisf.create(width, height, settings);
+    sf::Font font;
+    font.loadFromFile("consola.ttf");
     while (true) {
         /*
         std::uint64_t now = get_current_time();
@@ -155,19 +162,8 @@ int main(int argc, char **argv) {
             }
         }
         */
-        /*
-		POINT cpoint;
-		GetCursorPos(&cpoint);
-		const Vec2<double> cposition(cpoint.x, cpoint.y);
-        */
         s.update(1/60.0, 8);
         /* std::this_thread::sleep_for(std::chrono::milliseconds(100/120)); */
-        /*
-        sf::RectangleShape bound(sf::Vector2f(s.constraint_sz.x * display_scale, s.constraint_sz.y * display_scale));
-        bound.setPosition(xoffset + s.constraint_dim.x, yoffset + s.constraint_dim.y);
-        bound.setFillColor(bg);
-        window.draw(bound);
-        */
         /* drawing cells */
         /*
         for (std::int32_t i = 0; i < s.x; i++) {
@@ -183,25 +179,38 @@ int main(int argc, char **argv) {
             }
         }
         */
-        window.clear(bg);
+        const std::uint64_t render_start = get_current_time();
+        GetCursorPos(&cpoint);
+        const Vec2<double> cposition(cpoint.x, cpoint.y);
+        thisf.clear(fg);
         for (std::int32_t i = 0; i < s.x; i++) {
             for (std::int32_t j = 0; j < s.y; j++) {
                 for (Particle *pparticle : s.cells[i][j].particles) {
                     Particle& particle = *pparticle;
-					sf::CircleShape point(particle.size * display_scale);
-                    point.setFillColor(sf::Color(std::clamp<std::int32_t>(particle.temperature, 0, 255), 0x1A, 0x1A));
+                    if (particle.temperature < 128) { continue; }
+                    sf::CircleShape point(particle.size * display_scale);
+                    const std::int32_t tempmul = std::clamp<std::int32_t>(particle.temperature, 0, 255);
+                    point.setFillColor(sf::Color(tempmul, tempmul/4, 0x05)); 
                     point.setPosition((particle.pos_cur.x - particle.size) * display_scale + xoffset, (particle.pos_cur.y - particle.size) * display_scale + yoffset);
-                    window.draw(point);
-                    /*
+                    thisf.draw(point);
                     const Vec2<double> cdiff(cposition - particle.pos_cur);
                     particle.accelerate((cdiff / cdiff.mod()) * ec * particle.size / std::clamp<double>(cdiff.mod()*cdiff.mod(), 0.1, 10000));
-                    */
                 }
             }
         }
+        thisf.display();
+        window.clear();
+        sf::Sprite sprite(thisf.getTexture());
+        window.draw(sprite, &blooms);
+        sf::Text text("", font);
+        text.setPosition(0, height - text.getCharacterSize());
+        const double render_length = (get_current_time() - render_start) / 1'000'000.0L; /* in ms */
+        text.setString("render: " + std::to_string(std::round(render_length * 1000.0)/1000.0) + " ms");
+        window.draw(text);
         window.display();
     }
 
+    FreeConsole();
 
     return 0;
 }

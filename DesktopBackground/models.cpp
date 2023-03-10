@@ -159,9 +159,9 @@ void Simul::update(double dt, std::int32_t substeps) {
                     Particle *poparticle = cells[i][j].particles[ip];
                     Particle& oparticle = *poparticle;
                     if (si == substeps-1) {
-						oparticle.temperature -= temp_decay * dt;
-						oparticle.accelerate({0, -oparticle.temperature/2.0});
-						oparticle.update(dt);
+                        oparticle.temperature -= temp_decay * dt;
+                        oparticle.accelerate({0, -oparticle.temperature/2.0});
+                        oparticle.update(dt);
                     }
 
                     /* check surrounding */
@@ -208,10 +208,10 @@ void Simul::update(double dt, std::int32_t substeps) {
                         oparticle.temperature -= temp_wall_decay * dt;
                     } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y - oparticle.size) { /* is bottom */
                         oparticle.pos_cur.y = constraint_dim.y + constraint_sz.y - oparticle.size;
-						oparticle.temperature += temp_gain * dt;
+                        oparticle.temperature += temp_gain * dt;
                         /*
                         if (oparticle.pos_cur.x > constraint_dim.x + constraint_sz.x/4.0 && oparticle.pos_cur.x < constraint_dim.x + constraint_sz.x * 3.0/4.0) {
-						}
+                        }
                         */
                     } else if (oparticle.pos_cur.y < constraint_dim.y + oparticle.size) {
                         oparticle.pos_cur.y = constraint_dim.y + oparticle.size;

@@ -112,9 +112,9 @@
       <AdditionalIncludeDirectories>C:\Users\mglas\source\libs\SFML-2.5.1\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>sfml-graphics.lib;sfml-window.lib;sfml-system.lib;Shcore.lib;user32.lib</AdditionalDependencies>
+      <AdditionalDependencies>sfml-main.lib;sfml-graphics-d.lib;sfml-window-d.lib;sfml-system-d.lib;Shcore.lib;user32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>C:\users\mglas\source\libs\SFML-2.5.1\lib</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -146,6 +146,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="models.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\x64\Debug\bloom.fragment" />
+  </ItemGroup>
+  <ItemGroup>
+    <Font Include="..\x64\Debug\consola.ttf" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
