@@ -1,8 +1,63 @@
 #include "models.h"
 
 
+void partition(std::int32_t a, std::int32_t b, std::int32_t count, std::vector<std::pair<std::int32_t, std::int32_t>>& out) {
+    if (count <= 1) {
+        out.emplace_back(a, b);
+        return;
+    }
+    const std::int32_t per = (b - a) / count;
+
+    std::int32_t i = 0;
+    for (; i < count - 1; i++) {
+        out.emplace_back(i * per + a, (i + 1) * per + a);
+    }
+    out.emplace_back(i * per + a, b);
+}
+
+Lock::Lock(std::int32_t total) : total(total) {}
+
+void Lock::operator=(const Lock& other) {
+    i = other.i.load();
+    total = other.total;
+}
+
+void Lock::wait() {
+    i++;
+    if (i >= total) {
+        return;
+    }
+    /* this theoretically would have better branch prediction than the while (i < total) */
+    while (true) {
+        if (i >= total) { break; }
+    }
+    have_exited++;
+    if (have_exited >= total) {
+        i = 0;
+        have_exited = 0;
+    }
+}
+
+void Lock::wait(std::stop_token stoken) {
+    i++;
+    if (i >= total) {
+        return;
+    }
+    /* this theoretically would have better branch prediction than the while (i < total) */
+    while (!stoken.stop_requested()) {
+        if (i >= total) { break; }
+    }
+    have_exited++;
+    if (have_exited >= total) {
+        i = 0;
+        have_exited = 0;
+    }
+}
+
+
+
 template <typename T>
-Vec2<T>::Vec2<T>(const T& x, const T& y) : x(x), y(y) {}
+Vec2<T>::Vec2(const T& x, const T& y) : x(x), y(y) {}
 
 template <typename T>
 Vec2<T> Vec2<T>::operator=(const Vec2<T>& other) noexcept {
@@ -82,6 +137,7 @@ void Particle::accelerate(const Vec2<double>& acc) {
 }
 
 
+
 Cell::Cell() : mpos(0, 0) {}
 
 Cell::Cell(MPos mpos) : mpos(std::move(mpos)) {}
@@ -94,13 +150,117 @@ Cell::~Cell() {
 
 
 
-Simul::Simul(std::int32_t x, std::int32_t y) : x(x), y(y) {
+Simul::Simul(std::int32_t x, std::int32_t y, std::int32_t thread_count) : x(x), y(y), thread_count(thread_count) {
     cells = new Cell*[x];
     for (std::int32_t i = 0; i < x; i++) {
         cells[i] = new Cell[y];
         for (std::int32_t j = 0; j < y; j++) {
             cells[i][j].mpos = {i, j};
         }
+    }
+
+    begin_lock = Lock(thread_count + 1);
+    std::vector<std::pair<std::int32_t, std::int32_t>> out;
+    partition(0, x, thread_count * 2, out);
+    for (std::int32_t i = 0; i < thread_count * 2; i++) {
+        tcoords.emplace_back(out[i].first, 0, out[i].second, y);
+    }
+
+    auto update_mt = [&](std::stop_token stoken, std::int32_t index) {
+        std::int32_t& fbx = std::get<0>(tcoords[index]);
+        std::int32_t& fby = std::get<1>(tcoords[index]);
+        std::int32_t& fx  = std::get<2>(tcoords[index]);
+        std::int32_t& fy  = std::get<3>(tcoords[index]);
+
+        std::int32_t& obx = std::get<0>(tcoords[index + 1LL]);
+        std::int32_t& oby = std::get<1>(tcoords[index + 1LL]);
+        std::int32_t& ox  = std::get<2>(tcoords[index + 1LL]);
+        std::int32_t& oy  = std::get<3>(tcoords[index + 1LL]);
+        const std::tuple<std::int32_t&, std::int32_t&, std::int32_t&, std::int32_t&> tcoord[] = {{fbx, fby, fx, fy}, {obx, oby, ox, oy}};
+        
+        while (!stoken.stop_requested()) {
+            begin_lock.wait(stoken);
+            for (auto& [bx, by, x, y] : tcoord) {
+                for (std::int32_t i = bx; i < x; i++) {
+                    for (std::int32_t j = by; j < y; j++) {
+                        std::vector<Particle*>& particles = cells[i][j].particles;
+                        for (std::int32_t ip = 0; ip < cells[i][j].particles.size(); ip++) {
+                            Particle *poparticle = cells[i][j].particles[ip];
+                            Particle& oparticle = *poparticle;
+                            oparticle.temperature -= temp_decay * dt / substeps;
+                            oparticle.accelerate(Vec2<double>(0, -oparticle.temperature * 10.0 / substeps));
+                            oparticle.update(dt / substeps);
+
+                            /* check surrounding */
+                            for (std::int32_t n = -1; n < 2; n++) {
+                                for (std::int32_t m = -1; m < 2; m++) {
+                                    if (n + i < 0 || n + i >= x || m + j < 0 || m + j >= y) { continue; } /* out of bounds */
+                                    for (std::int32_t ik = 0; ik < cells[n + i][m + j].particles.size(); ik++) {
+                                        Particle *pcparticle = cells[n + i][m + j].particles[ik];
+                                        if ((n == 0 && m == 0) && pcparticle == poparticle) { continue; } /* is itself */
+                                        Particle& cparticle = *pcparticle;
+                                        if (cparticle.pos_cur.dist(oparticle.pos_cur) < oparticle.size + cparticle.size) {
+                                            const Vec2<double> v = oparticle.pos_cur - cparticle.pos_cur;
+                                            const double dist = oparticle.pos_cur.dist(cparticle.pos_cur);
+                                            const Vec2<double> nv = v / dist;
+                                            const double oratio = oparticle.size / (oparticle.size + cparticle.size);
+                                            const double cratio = cparticle.size / (oparticle.size + cparticle.size);
+                                            const double delta = 0.5 * (dist - (oparticle.size + cparticle.size));
+                                            /* update positions */
+                                            oparticle.pos_cur -= nv * (oratio * delta) * elasticity;
+                                            cparticle.pos_cur += nv * (cratio * delta) * elasticity;
+                                            const double midtemp = (oparticle.temperature + cparticle.temperature) / 2.0;
+                                            oparticle.temperature += (midtemp - oparticle.temperature) * temp_trans * dt / substeps;
+                                            cparticle.temperature += (midtemp - cparticle.temperature) * temp_trans * dt / substeps;
+                                            while (!to_check_mutex.try_lock()) {;}
+                                            to_check.push(pcparticle);
+                                            to_check_mutex.unlock();
+                                        }
+                                    }
+                                }
+                            }
+                            /* circle bounds checking */
+                            /*
+                            const Vec2 v = constraint_center - oparticle.pos_cur;
+                            const double dist = oparticle.pos_cur.dist(constraint_center);
+                            if (dist > (crad - oparticle.size)) {
+                                oparticle.temperature += temp_gain * dt;
+                                const Vec2<double> nv = v / dist;
+                                oparticle.pos_cur = constraint_center - nv * (crad - oparticle.size);
+                            }
+                            */
+                            if (oparticle.pos_cur.x > constraint_dim.x + constraint_sz.x - oparticle.size) {
+                                const Vec2<double> v(0, constraint_sz.y/2.0);
+                                oparticle.pos_cur.x = constraint_dim.x + constraint_sz.x - oparticle.size;
+                                oparticle.temperature -= temp_wall_decay * dt / substeps;
+                            } else if (oparticle.pos_cur.x < constraint_dim.x + oparticle.size) {
+                                oparticle.pos_cur.x = constraint_dim.x + oparticle.size;
+                                oparticle.temperature -= temp_wall_decay * dt / substeps;
+                            } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y - oparticle.size) { /* is bottom */
+                                oparticle.pos_cur.y = constraint_dim.y + constraint_sz.y - oparticle.size;
+                                /*
+                                if (oparticle.pos_cur.x > constraint_dim.x + constraint_sz.x/4.0 && oparticle.pos_cur.x < constraint_dim.x + constraint_sz.x * 3.0/4.0) {
+                                }
+                                */
+                            } else if (oparticle.pos_cur.y < constraint_dim.y + oparticle.size) {
+                                oparticle.pos_cur.y = constraint_dim.y + oparticle.size;
+                                oparticle.temperature -= temp_wall_decay * dt / substeps;
+                            } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y * 0.98 - oparticle.size) {
+                                oparticle.temperature += temp_gain * dt / substeps;
+                            }
+                            while (!to_check_mutex.try_lock()) {;}
+                            to_check.push(poparticle);
+                            to_check_mutex.unlock();
+                            oparticle.temperature = std::clamp(oparticle.temperature, 0.0, std::numeric_limits<double>::max());
+                        }
+                    }
+                }
+            }
+        }
+    };
+    threads = new std::jthread[thread_count];
+    for (std::int32_t i = 0; i < thread_count; i++) {
+        threads[i] = std::jthread(update_mt, i * 2);
     }
 }
 
@@ -109,11 +269,18 @@ Simul::~Simul() {
         delete[] cells[i];
     }
     delete[] cells;
+    delete[] threads; /* jthread does the signaling and joining for us in destructor */
+    for (auto pparticle : particles) {
+        delete pparticle;
+    }
 }
 
 void Simul::addparticle(Particle *pparticle) {
+    /* this is lazy but it's fine */
     cells[1][1].particles.push_back(pparticle);
-    check_particle(1, 1, cells[1][1].particles.size() - 1);
+    particles.push_back(pparticle);
+    pparticle->cell = {1, 1};
+    check_particle(pparticle);
     maxsize = std::max(maxsize, pparticle->size);
 }
 
@@ -127,100 +294,48 @@ void Simul::accelerate(const Vec2<double>& acc) {
     }
 }
 
-void Simul::check_particle(std::int32_t cx, std::int32_t cy, std::int32_t k) {
+void Simul::check_particle(Particle *pparticle) {
+    Particle& particle = *pparticle;
+    std::int32_t cx = particle.cell.x;
+    std::int32_t cy = particle.cell.y;
     std::vector<Particle*>& particles = cells[cx][cy].particles;
-    Particle& particle = *particles[k];
 
     std::int32_t newx = particle.pos_cur.x / cellsize, newy = particle.pos_cur.y / cellsize;
-    if (newx != cells[cx][cy].mpos.x || newy != cells[cx][cy].mpos.y) {
+    if (newx != cx || newy != cy) {
+        while (!particle_mutex.try_lock()) {
+            ;
+        }
+        auto ploc = std::find(particles.begin(), particles.end(), pparticle);
         if (newx < 0 || newx >= x || newy < 0 || newy >= y) { /* out of bounds */
-            particles.erase(particles.begin() + k);
-            k--;
+            particles.erase(ploc);
+            this->particles.erase(std::find(this->particles.begin(), this->particles.end(), pparticle));
+            particle_mutex.unlock();
             return;
         }
-        cells[newx][newy].particles.push_back(particles[k]);
-        particles.erase(particles.begin() + k);
-        k--;
+        cells[newx][newy].particles.push_back(pparticle);
+        
+        particles.erase(ploc);
+        pparticle->cell = {newx, newy};
+        particle_mutex.unlock();
     }
 }
 
 void Simul::update(double dt, std::int32_t substeps) {
-    const double temp_trans = 20; /* how much per second */
-    const double temp_decay = 80; /* per sec */
-    const double temp_wall_decay = 100;
-    const double temp_gain = 500;
-    const double elasticity = 0.75;
-    accelerate({0.0, 500.0}); /* gravity */
+    this->dt = dt;
+    this->substeps = substeps;
+    accelerate({0.0, 800.0}); /* gravity */
     for (std::int32_t si = 0; si < substeps; si++) {
-        for (std::int32_t i = 0; i < x; i++) {
-            for (std::int32_t j = 0; j < y; j++) {
-                std::vector<Particle*>& particles = cells[i][j].particles;
-                for (std::int32_t ip = 0; ip < cells[i][j].particles.size(); ip++) {
-                    Particle *poparticle = cells[i][j].particles[ip];
-                    Particle& oparticle = *poparticle;
-                    oparticle.temperature -= temp_decay * dt / substeps;
-                    oparticle.accelerate(Vec2<double>(0, -oparticle.temperature * 10.0 / substeps));
-                    oparticle.update(dt / substeps);
-
-                    /* check surrounding */
-                    for (std::int32_t n = -1; n < 2; n++) {
-                        for (std::int32_t m = -1; m < 2; m++) {
-                            if (n + i < 0 || n + i >= x || m + j < 0 || m + j >= y) { continue; } /* out of bounds */
-                            for (std::int32_t ik = 0; ik < cells[n + i][m + j].particles.size(); ik++) {
-                                Particle *pcparticle = cells[n + i][m + j].particles[ik];
-                                if ((n == 0 && m ==0) && pcparticle == poparticle) { continue; } /* is itself */
-                                Particle& cparticle = *pcparticle;
-                                if (cparticle.pos_cur.dist(oparticle.pos_cur) < oparticle.size + cparticle.size) {
-                                    const Vec2<double> v = oparticle.pos_cur - cparticle.pos_cur;
-                                    const double dist = oparticle.pos_cur.dist(cparticle.pos_cur);
-                                    const Vec2<double> nv = v / dist;
-                                    const double oratio = oparticle.size / (oparticle.size + cparticle.size);
-                                    const double cratio = cparticle.size / (oparticle.size + cparticle.size);
-                                    const double delta = 0.5 * (dist - (oparticle.size + cparticle.size));
-                                    /* update positions */
-                                    oparticle.pos_cur -= nv * (oratio * delta) * elasticity;
-                                    cparticle.pos_cur += nv * (cratio * delta) * elasticity;
-                                    const double midtemp = (oparticle.temperature + cparticle.temperature) / 2.0;
-                                    oparticle.temperature += (midtemp - oparticle.temperature) * temp_trans * dt / substeps;
-                                    cparticle.temperature += (midtemp - cparticle.temperature) * temp_trans * dt / substeps;
-                                    check_particle(n + i, m + j, ik); /* cparticle */
-                                }
-                            }
-                        }
-                    }
-                    /* circle bounds checking */
-                    /*
-                    const Vec2 v = constraint_center - oparticle.pos_cur;
-                    const double dist = oparticle.pos_cur.dist(constraint_center);
-                    if (dist > (crad - oparticle.size)) {
-                        oparticle.temperature += temp_gain * dt;
-                        const Vec2<double> nv = v / dist;
-                        oparticle.pos_cur = constraint_center - nv * (crad - oparticle.size);
-                    }
-                    */
-                    if (oparticle.pos_cur.x > constraint_dim.x + constraint_sz.x - oparticle.size) {
-                        const Vec2<double> v(0, constraint_sz.y/2.0);
-                        oparticle.pos_cur.x = constraint_dim.x + constraint_sz.x - oparticle.size;
-                        oparticle.temperature -= temp_wall_decay * dt / substeps;
-                    } else if (oparticle.pos_cur.x < constraint_dim.x + oparticle.size) {
-                        oparticle.pos_cur.x = constraint_dim.x + oparticle.size;
-                        oparticle.temperature -= temp_wall_decay * dt / substeps;
-                    } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y - oparticle.size) { /* is bottom */
-                        oparticle.pos_cur.y = constraint_dim.y + constraint_sz.y - oparticle.size;
-                        /*
-                        if (oparticle.pos_cur.x > constraint_dim.x + constraint_sz.x/4.0 && oparticle.pos_cur.x < constraint_dim.x + constraint_sz.x * 3.0/4.0) {
-                        }
-                        */
-                    } else if (oparticle.pos_cur.y < constraint_dim.y + oparticle.size) {
-                        oparticle.pos_cur.y = constraint_dim.y + oparticle.size;
-                        oparticle.temperature -= temp_wall_decay * dt / substeps;
-                    } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y * 0.98 - oparticle.size) {
-                        oparticle.temperature += temp_gain * dt / substeps;
-                    }
-                    /* have to re find in case a particle was moved out of cell due to earlier check_particle */
-                    check_particle(i, j, std::find(particles.begin(), particles.end(), poparticle) - particles.begin());
-                }
+        for (std::int32_t i = 0; i < thread_count; i++) {
+            begin_lock.wait(); /* this will cause all the threads to stop waiting and then to update, since we initialized the lock to thread_count + 1 as the total */
+        }
+        std::vector<Particle*> already_seen;
+        while (!to_check.empty()) {
+            if (std::find(already_seen.begin(), already_seen.end(), to_check.front()) != already_seen.end()) {
+                to_check.pop();
+                continue;
             }
+            check_particle(to_check.front());
+            to_check.pop();
         }
     }
 }
