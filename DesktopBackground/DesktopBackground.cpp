@@ -243,7 +243,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
                 for (Particle *pparticle : s.cells[i][j].particles) {
                     Particle& particle = *pparticle;
                     ocount++;
-                    //if (particle.temperature < 80) { continue; }
+                    if (particle.temperature < 80) { continue; }
                     point.setScale(sf::Vector2f(particle.size * display_scale / initscale, particle.size * display_scale / initscale));
                     const std::int32_t tempmul = std::clamp<std::int32_t>(particle.temperature, 0, 255);
                     point.setColor(sf::Color(tempmul, static_cast<std::int32_t>(std::pow(tempmul/255.0, 2)*255/3.0), static_cast<std::int32_t>(std::pow(tempmul/255.0, 3)*255/10.0))); 
@@ -259,8 +259,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         thisf.display();
         window.clear();
         sprite.setTexture(thisf.getTexture());
-        //window.draw(sprite, &blooms);
-        window.draw(sprite);
+        window.draw(sprite, &blooms);
+        //window.draw(sprite);
 
         stext.setString("simul: " + std::to_string(std::round(simul_length * 1000.0)/1000.0) + " ms");
         otext.setString("objects: " + std::to_string(ocount));
