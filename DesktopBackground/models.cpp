@@ -183,12 +183,13 @@ Simul::Simul(std::int32_t x, std::int32_t y, std::int32_t thread_count) : x(x), 
             for (auto& [bx, by, x, y] : tcoord) {
                 for (std::int32_t i = bx; i < x; i++) {
                     for (std::int32_t j = by; j < y; j++) {
+                        std::lock_guard guard(particle_mutex);
                         std::vector<Particle*>& particles = cells[i][j].particles;
                         for (std::int32_t ip = 0; ip < cells[i][j].particles.size(); ip++) {
                             Particle *poparticle = cells[i][j].particles[ip];
                             Particle& oparticle = *poparticle;
                             oparticle.temperature -= temp_decay * dt / substeps;
-                            oparticle.accelerate(Vec2<double>(0, -oparticle.temperature * 10.0 / substeps));
+                            oparticle.accelerate(Vec2<double>(0, -oparticle.temperature * 40.0 / substeps));
                             oparticle.update(dt / substeps);
 
                             /* check surrounding */
@@ -210,11 +211,8 @@ Simul::Simul(std::int32_t x, std::int32_t y, std::int32_t thread_count) : x(x), 
                                             oparticle.pos_cur -= nv * (oratio * delta) * elasticity;
                                             cparticle.pos_cur += nv * (cratio * delta) * elasticity;
                                             const double midtemp = (oparticle.temperature + cparticle.temperature) / 2.0;
-                                            oparticle.temperature += (midtemp - oparticle.temperature) * temp_trans * dt / substeps;
-                                            cparticle.temperature += (midtemp - cparticle.temperature) * temp_trans * dt / substeps;
-                                            while (!to_check_mutex.try_lock()) {;}
-                                            to_check.push(pcparticle);
-                                            to_check_mutex.unlock();
+                                            oparticle.temperature += (midtemp - oparticle.temperature) * temp_trans * dt / substeps / oparticle.resistance;
+                                            cparticle.temperature += (midtemp - cparticle.temperature) * temp_trans * dt / substeps / oparticle.resistance;
                                         }
                                     }
                                 }
@@ -246,11 +244,8 @@ Simul::Simul(std::int32_t x, std::int32_t y, std::int32_t thread_count) : x(x), 
                                 oparticle.pos_cur.y = constraint_dim.y + oparticle.size;
                                 oparticle.temperature -= temp_wall_decay * dt / substeps;
                             } else if (oparticle.pos_cur.y > constraint_dim.y + constraint_sz.y * 0.98 - oparticle.size) {
-                                oparticle.temperature += temp_gain * dt / substeps;
+                                oparticle.temperature += temp_gain * dt / substeps / oparticle.resistance;
                             }
-                            while (!to_check_mutex.try_lock()) {;}
-                            to_check.push(poparticle);
-                            to_check_mutex.unlock();
                             oparticle.temperature = std::clamp(oparticle.temperature, 0.0, std::numeric_limits<double>::max());
                         }
                     }
@@ -276,11 +271,13 @@ Simul::~Simul() {
 }
 
 void Simul::addparticle(Particle *pparticle) {
-    /* this is lazy but it's fine */
-    cells[1][1].particles.push_back(pparticle);
+    std::lock_guard guard(particle_mutex);
     particles.push_back(pparticle);
-    pparticle->cell = {1, 1};
-    check_particle(pparticle);
+	std::int32_t mx = std::clamp(static_cast<std::int32_t>(pparticle->pos_cur.x) / static_cast<std::int32_t>(cellsize), 0, x - 1);
+	std::int32_t my = std::clamp(static_cast<std::int32_t>(pparticle->pos_cur.y) / static_cast<std::int32_t>(cellsize), 0, y - 1);
+	pparticle->cell = {mx, my};
+    Cell &c = cells[mx][my];
+	c.particles.push_back(pparticle);
     maxsize = std::max(maxsize, pparticle->size);
 }
 
@@ -302,10 +299,12 @@ void Simul::check_particle(Particle *pparticle) {
 
     std::int32_t newx = particle.pos_cur.x / cellsize, newy = particle.pos_cur.y / cellsize;
     if (newx != cx || newy != cy) {
-        while (!particle_mutex.try_lock()) {
-            ;
-        }
+        particle_mutex.lock();
         auto ploc = std::find(particles.begin(), particles.end(), pparticle);
+        if (ploc == particles.end()) {
+            particle_mutex.unlock();
+			return;
+        }
         if (newx < 0 || newx >= x || newy < 0 || newy >= y) { /* out of bounds */
             particles.erase(ploc);
             this->particles.erase(std::find(this->particles.begin(), this->particles.end(), pparticle));
@@ -323,19 +322,25 @@ void Simul::check_particle(Particle *pparticle) {
 void Simul::update(double dt, std::int32_t substeps) {
     this->dt = dt;
     this->substeps = substeps;
-    accelerate({0.0, 800.0}); /* gravity */
+    accelerate({0.0, 500.0}); /* gravity */
     for (std::int32_t si = 0; si < substeps; si++) {
         for (std::int32_t i = 0; i < thread_count; i++) {
             begin_lock.wait(); /* this will cause all the threads to stop waiting and then to update, since we initialized the lock to thread_count + 1 as the total */
         }
-        std::vector<Particle*> already_seen;
-        while (!to_check.empty()) {
-            if (std::find(already_seen.begin(), already_seen.end(), to_check.front()) != already_seen.end()) {
-                to_check.pop();
-                continue;
+        std::lock_guard guard(particle_mutex);
+        for (std::uint32_t i = 0; i < x; i++) {
+            for (std::uint32_t j = 0; j < y; j++) {
+                cells[i][j].particles.clear();
             }
-            check_particle(to_check.front());
-            to_check.pop();
+        }
+        for (std::uint32_t i = 0; i < particles.size(); i++) {
+            Particle *pparticle = particles[i];
+            std::int32_t mx = std::clamp(static_cast<std::int32_t>(pparticle->pos_cur.x) / static_cast<std::int32_t>(cellsize), 0, x - 1);
+            std::int32_t my = std::clamp(static_cast<std::int32_t>(pparticle->pos_cur.y) / static_cast<std::int32_t>(cellsize), 0, y - 1);
+            pparticle->cell = {mx, my};
+            Cell &c = cells[mx][my];
+            c.particles.push_back(pparticle);
+            []{}();
         }
     }
 }

@@ -71,7 +71,7 @@ public:
 
 class Particle {
 public:
-    double temperature = 0, size = 1;
+    double temperature = 0, size = 1, resistance = 1;
     Vec2<double> pos_old, pos_cur;
     Vec2<double> acceleration;
     MPos cell;
@@ -101,15 +101,15 @@ public:
 
 class Simul {
 public:
-    /* x, y is number of cells, each 1x1 */
+    /* x, y is number of cells */
     std::int32_t x = 0, y = 0;
     std::int32_t thread_count = 1;
     double maxsize = 1;
     double cellsize = 1;
-    double temp_trans = 20; /* how much per second */
-    double temp_decay = 80; /* per sec */
-    double temp_wall_decay = 100;
-    double temp_gain = 500;
+    double temp_trans = 40; /* how much per second */
+    double temp_decay = 90; /* per sec */
+    double temp_wall_decay = 0;
+    double temp_gain = 700;
     double elasticity = 0.75;
     Vec2<double> constraint_dim, constraint_sz; /* dim = x, y and sz = w, h */
     Cell **cells;
@@ -121,8 +121,6 @@ public:
     std::vector<std::tuple<std::int32_t, std::int32_t, std::int32_t, std::int32_t>> tcoords; /* does not need to be atomic since lock controls */
     std::atomic_int32_t substeps = 0;
     std::mutex particle_mutex;
-    std::queue<Particle*> to_check;
-    std::mutex to_check_mutex;
     Lock begin_lock;
 
     Simul(std::int32_t x, std::int32_t y, std::int32_t thread_count);

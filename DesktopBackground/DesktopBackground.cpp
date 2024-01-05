@@ -27,7 +27,7 @@ template <typename T>
 T random_real(T a, T b) {
     static std::random_device device{};
     static std::default_random_engine engine(device());
-    const std::uniform_real_distribution<T> dist(a, b);
+    std::uniform_real_distribution<T> dist(a, b);
     return dist(engine);
 }
 
@@ -72,7 +72,7 @@ void BindStdHandlesToConsole() {
 }
 
 
-/* This section copied from https://www.anycodings.com/1questions/2323944/drawing-on-the-desktop-background-as-wallpaper-replacement-windowsc */
+/* This section (next two functions, EnumWindowsProc and get_wallpaper_window) copied from https://www.anycodings.com/1questions/2323944/drawing-on-the-desktop-background-as-wallpaper-replacement-windowsc */
 BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
     HWND p = FindWindowEx(hwnd, NULL, L"SHELLDLL_DefView", NULL);
     HWND *ret = (HWND*)lParam;
@@ -102,7 +102,7 @@ HWND get_wallpaper_window() {
 }
 
 
-int main(int argc, char **argv) {
+int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
     AllocConsole();
     BindStdHandlesToConsole();
     std::ios_base::sync_with_stdio(false);
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
     }
 
     const float sigma = 5.0F;
-    const float glow_multiplier = 0.15F;
+    const float glow_multiplier = 0.4F;
     
     blooms.setUniform("sourceTexture", sf::Shader::CurrentTexture);
     blooms.setUniform("sigma", sigma);
@@ -137,13 +137,15 @@ int main(int argc, char **argv) {
     blooms.setUniform("height", static_cast<float>(height));
 
 
+#define PARTICLES
+
 #ifdef PARTICLES
 
     const double display_scale = 1;
     const double ec = -10000;
     const double psize = 4;
 
-    Simul s(width / (psize*2) + 1, height / (psize*2) + 1, 2); /* need extra cells in case dimensions are not nicely divisible */
+    Simul s(width / (psize*2) + 1, height / (psize*2) + 1, 4); /* need extra cells in case dimensions are not nicely divisible */
     s.cellsize = psize*2;
     s.constraint_dim = {0.0, 0.0};
     s.constraint_sz = Vec2<double>(width, height);
@@ -194,6 +196,7 @@ int main(int argc, char **argv) {
     const double initscale = circletex.getSize().x/2.0; /* we don't care x or y its circle */
 
     std::int32_t ocount = 0;
+	std::uint64_t render_start = get_current_time();
     while (true) {
         /*
         std::uint64_t now = get_current_time();
@@ -201,15 +204,16 @@ int main(int argc, char **argv) {
             if (now - last_create >= pwait) {
         */
         const std::uint64_t simul_start = get_current_time();
-        if (ocount < 5000) {
-            for (std::int32_t i = 0; i < 10; i++) {
+        if (ocount < 7000) {
+            for (std::int32_t i = 0; i < 3; i++) {
                 Particle *p = new Particle({random_real<double>(psize, width - psize), random_real<double>(psize, height/2.0 - psize)});
+                p->resistance = random_real(0.12, 4.0);
                 p->size = psize;
-                p->temperature = random_real(0.0, 50.0);
+                p->temperature = random_real(0.0, 120.0);
                 s.addparticle(p);
             }
         }
-        s.update(1/60.0, 1);
+        s.update(1/60.0, 8);
         const double simul_length = (get_current_time() - simul_start) / 1'000'000.0L; /* in ms */
 
         /* std::this_thread::sleep_for(std::chrono::milliseconds(100/120)); */
@@ -228,9 +232,10 @@ int main(int argc, char **argv) {
             }
         }
         */
-        const std::uint64_t render_start = get_current_time();
+        /*
         GetCursorPos(&cpoint);
         const Vec2<double> cposition(cpoint.x, cpoint.y);
+        */
         ocount = 0;
         thisf.clear(fg);
         for (std::int32_t i = 0; i < s.x; i++) {
@@ -244,22 +249,26 @@ int main(int argc, char **argv) {
                     point.setColor(sf::Color(tempmul, static_cast<std::int32_t>(std::pow(tempmul/255.0, 2)*255/3.0), static_cast<std::int32_t>(std::pow(tempmul/255.0, 3)*255/10.0))); 
                     point.setPosition((particle.pos_cur.x - particle.size) * display_scale + xoffset, (particle.pos_cur.y - particle.size) * display_scale + yoffset);
                     thisf.draw(point);
+                    /*
                     const Vec2<double> cdiff(cposition - particle.pos_cur);
                     particle.accelerate((cdiff / cdiff.mod()) * ec * particle.size / std::clamp<double>(cdiff.mod()*cdiff.mod(), 0.1, 10000));
+                    */
                 }
             }
         }
         thisf.display();
         window.clear();
         sprite.setTexture(thisf.getTexture());
-        window.draw(sprite, &blooms);
+        //window.draw(sprite, &blooms);
+        window.draw(sprite);
 
         stext.setString("simul: " + std::to_string(std::round(simul_length * 1000.0)/1000.0) + " ms");
         otext.setString("objects: " + std::to_string(ocount));
         window.draw(stext);
         window.draw(otext);
 
-        const double render_length = (get_current_time() - render_start) / 1'000'000.0L; /* in ms */
+        const double render_length = (get_current_time() - render_start - simul_length) / 1'000'000.0L; /* in ms */
+		render_start = get_current_time();
         rtext.setString("render: " + std::to_string(std::round(render_length * 1000.0)/1000.0) + " ms");
         window.draw(rtext);
         window.display();
